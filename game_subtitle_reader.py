@@ -17,6 +17,7 @@ import numpy as np
 from openai import OpenAI
 
 from config import Config
+from i18n import I18n, t
 
 
 class FloatingWindow:
@@ -26,7 +27,7 @@ class FloatingWindow:
         """初始化悬浮窗口"""
         self.parent_app = parent_app
         self.window = tk.Toplevel()
-        self.window.title("字幕朗读")
+        self.window.title(t("floating_title"))
 
         # 窗口设置
         self.window.geometry("100x120+100+100")
@@ -51,20 +52,20 @@ class FloatingWindow:
         main_frame.pack(fill=tk.BOTH, expand=True)
 
         # 标题栏（用于拖动）
-        title_bar = tk.Label(
+        self.title_bar = tk.Label(
             main_frame,
-            text="⋮⋮ 字幕朗读 ⋮⋮",
+            text=f"⋮⋮ {t('floating_title')} ⋮⋮",
             font=("Arial", 8),
             bg="#1976D2",
             fg="white",
             cursor="fleur"  # 拖动光标
         )
-        title_bar.pack(fill=tk.X)
+        self.title_bar.pack(fill=tk.X)
 
         # 绑定标题栏拖动事件
-        title_bar.bind('<Button-1>', self.start_drag)
-        title_bar.bind('<B1-Motion>', self.do_drag)
-        title_bar.bind('<ButtonRelease-1>', self.end_drag)
+        self.title_bar.bind('<Button-1>', self.start_drag)
+        self.title_bar.bind('<B1-Motion>', self.do_drag)
+        self.title_bar.bind('<ButtonRelease-1>', self.end_drag)
 
         # 按钮容器
         button_frame = tk.Frame(main_frame, bg="#2196F3")
@@ -73,7 +74,7 @@ class FloatingWindow:
         # 截图按钮（使用 Label 模拟，避免 Button 的 command 冲突）
         self.capture_btn = tk.Label(
             button_frame,
-            text="📸\n截图",
+            text=t("floating_capture"),
             font=("Arial", 12, "bold"),
             bg="#4CAF50",
             fg="white",
@@ -94,12 +95,12 @@ class FloatingWindow:
 
         # 右键菜单
         self.menu = tk.Menu(self.window, tearoff=0)
-        self.menu.add_command(label="📱 显示主窗口", command=self.show_main_window)
+        self.menu.add_command(label=t("menu_show_main"), command=self.show_main_window)
         self.menu.add_separator()
-        self.menu.add_command(label="❌ 退出", command=self.parent_app.on_exit)
+        self.menu.add_command(label=t("menu_exit"), command=self.parent_app.on_exit)
 
         self.window.bind('<Button-3>', self.show_menu)
-        title_bar.bind('<Button-3>', self.show_menu)
+        self.title_bar.bind('<Button-3>', self.show_menu)
         self.capture_btn.bind('<Button-3>', self.show_menu)
 
         # 状态指示器
@@ -191,6 +192,15 @@ class FloatingWindow:
             self.status_indicator.config(fg="#4CAF50")
             self.capture_btn.config(bg="#4CAF50")  # 恢复绿色
 
+    def update_language(self):
+        """更新语言"""
+        self.window.title(t("floating_title"))
+        self.title_bar.config(text=f"⋮⋮ {t('floating_title')} ⋮⋮")
+        self.capture_btn.config(text=t("floating_capture"))
+        # 更新菜单
+        self.menu.entryconfig(0, label=t("menu_show_main"))
+        self.menu.entryconfig(2, label=t("menu_exit"))
+
     def close(self):
         """关闭悬浮窗口"""
         self.window.destroy()
@@ -261,7 +271,7 @@ class AudioPlayer:
             self.is_playing = False
 
         except Exception as e:
-            print(f"播放音频失败: {e}")
+            print(t("log_play_failed", e))
 
     def shutdown(self):
         """关闭音频播放器"""
@@ -289,6 +299,11 @@ class QwenMultimodalHandler:
         else:
             print(f"[QwenAPI] {message}")
 
+    def log_t(self, key: str, *args):
+        """记录翻译后的日志"""
+        message = t(key, *args)
+        self.log(message)
+
     def process_image_and_prompt(self, image_b64: str, prompt: str):
         """处理图像和提示词，返回文本和音频
 
@@ -300,7 +315,7 @@ class QwenMultimodalHandler:
             (recognized_text, audio_bytes): 识别的文本和音频字节
         """
         try:
-            self.log("发送请求到 Qwen 全模态 API...")
+            self.log_t("log_sending_request")
 
             # 构建消息
             messages = [
@@ -332,7 +347,7 @@ class QwenMultimodalHandler:
             )
 
             # 处理流式响应
-            self.log("接收响应...")
+            self.log_t("log_receiving")
             text_parts = []
             audio_base64_string = ""
 
@@ -341,7 +356,7 @@ class QwenMultimodalHandler:
                 if chunk.choices and chunk.choices[0].delta.content:
                     text_part = chunk.choices[0].delta.content
                     text_parts.append(text_part)
-                    self.log(f"识别文本: {text_part}")
+                    self.log_t("log_recognized", text_part)
 
                 # 收集音频部分
                 if (chunk.choices and
@@ -359,14 +374,14 @@ class QwenMultimodalHandler:
             audio_bytes = None
             if audio_base64_string:
                 audio_bytes = base64.b64decode(audio_base64_string)
-                self.log(f"音频大小: {len(audio_bytes)} 字节")
+                self.log_t("log_audio_size", len(audio_bytes))
             else:
-                self.log("⚠️ 未接收到音频数据")
+                self.log_t("log_no_audio")
 
             return recognized_text, audio_bytes
 
         except Exception as e:
-            self.log(f"API 请求失败: {e}")
+            self.log_t("log_api_failed", e)
             raise
 
 
@@ -413,18 +428,18 @@ class GameSubtitleReaderApp:
     def process_screenshot(self):
         """主处理流程：截图 → API → 播放"""
         if self.is_processing:
-            self.log("正在处理中，请稍候...")
+            self.log(t("log_processing"))
             return
 
         self.is_processing = True
-        self.update_status("处理中...")
+        self.update_status(t("status_processing"))
 
         try:
             # 1. 截图
-            self.log("截取屏幕...")
+            self.log(t("log_capturing"))
             image_bytes = self.screenshot_handler.capture_screen()
             image_b64 = self.screenshot_handler.image_to_base64(image_bytes)
-            self.log(f"截图完成，大小: {len(image_bytes)} 字节")
+            self.log(t("log_capture_done", len(image_bytes)))
             self.last_screenshot = image_bytes
 
             # 2. 发送到 API 并获取结果
@@ -437,23 +452,23 @@ class GameSubtitleReaderApp:
             if recognized_text:
                 self.last_recognized_text = recognized_text
                 self.display_result(recognized_text)
-                self.log(f"✅ 识别完成")
+                self.log(t("log_complete"))
             else:
-                self.log("⚠️ 未识别到文本内容")
+                self.log(t("log_no_text"))
 
             # 4. 播放音频
             if audio_bytes:
-                self.log("播放语音...")
+                self.log(t("log_playing"))
                 self.audio_player.play_wav_audio(audio_bytes)
-                self.log("播放完成！")
+                self.log(t("log_play_done"))
             else:
-                self.log("⚠️ 无音频数据可播放")
+                self.log(t("log_no_audio_play"))
 
-            self.update_status("等待中")
+            self.update_status(t("status_waiting"))
 
         except Exception as e:
-            self.log(f"错误: {e}")
-            self.update_status("错误")
+            self.log(t("log_error", e))
+            self.update_status(t("status_error"))
 
         finally:
             self.is_processing = False
@@ -472,7 +487,7 @@ class GameSubtitleReaderApp:
     def save_results(self):
         """保存截图和识别结果"""
         if not self.last_screenshot and not self.last_recognized_text:
-            self.log("没有可保存的数据")
+            self.log(t("log_no_save_data"))
             return
 
         try:
@@ -484,18 +499,18 @@ class GameSubtitleReaderApp:
                 image_path = os.path.join(save_dir, f"screenshot_{timestamp}.png")
                 with open(image_path, 'wb') as f:
                     f.write(self.last_screenshot)
-                self.log(f"截图已保存: {image_path}")
+                self.log(t("log_screenshot_saved", image_path))
 
             if self.last_recognized_text:
                 text_path = os.path.join(save_dir, f"text_{timestamp}.txt")
                 with open(text_path, 'w', encoding='utf-8') as f:
                     f.write(self.last_recognized_text)
-                self.log(f"文本已保存: {text_path}")
+                self.log(t("log_text_saved", text_path))
 
-            self.log("✅ 保存成功！")
+            self.log(t("log_save_success"))
 
         except Exception as e:
-            self.log(f"保存失败: {e}")
+            self.log(t("log_save_failed", e))
 
     def toggle_floating_mode(self):
         """切换悬浮模式"""
@@ -506,13 +521,13 @@ class GameSubtitleReaderApp:
                 self.floating_window = None
             self.root.deiconify()
             self.is_floating = False
-            self.log("退出悬浮模式")
+            self.log(t("log_floating_exit"))
         else:
             # 进入悬浮模式
             self.root.withdraw()  # 隐藏主窗口
             self.floating_window = FloatingWindow(self)
             self.is_floating = True
-            self.log("进入悬浮模式 - 双击悬浮窗返回")
+            self.log(t("log_floating_enter"))
 
     def setup_hotkey(self):
         """设置全局快捷键"""
@@ -524,7 +539,7 @@ class GameSubtitleReaderApp:
 
             def on_activate():
                 """快捷键触发回调"""
-                self.log(f"快捷键触发: {hotkey_str}")
+                self.log(t("log_hotkey_trigger", hotkey_str))
                 threading.Thread(target=self.process_screenshot, daemon=True).start()
 
             # 解析快捷键
@@ -539,60 +554,74 @@ class GameSubtitleReaderApp:
                 on_release=lambda key: hotkey_combo.release(self.hotkey_listener.canonical(key))
             )
             self.hotkey_listener.start()
-            self.log(f"快捷键 {hotkey_str} 已启用")
+            self.log(t("log_hotkey_enabled", hotkey_str))
 
         except Exception as e:
-            self.log(f"设置快捷键失败: {e}")
+            self.log(t("log_hotkey_failed", e))
 
     def stop_hotkey(self):
         """停止快捷键监听"""
         if self.hotkey_listener:
             self.hotkey_listener.stop()
             self.hotkey_listener = None
-            self.log("快捷键已停用")
+            self.log(t("log_hotkey_disabled"))
 
     # ============ GUI 相关 ============
 
     def create_gui(self):
         """创建 tkinter GUI"""
         self.root = tk.Tk()
-        self.root.title("游戏字幕朗读工具 V2")
+        self.root.title(t("app_title"))
         self.root.geometry("550x700")
 
         # 状态显示
         status_frame = tk.Frame(self.root, bg="#f0f0f0", pady=10)
         status_frame.pack(fill=tk.X)
 
-        tk.Label(
+        self.status_text_label = tk.Label(
             status_frame,
-            text="状态:",
+            text=t("status"),
             font=("Arial", 12),
             bg="#f0f0f0"
-        ).pack(side=tk.LEFT, padx=(20, 5))
+        )
+        self.status_text_label.pack(side=tk.LEFT, padx=(20, 5))
 
         self.status_label = tk.Label(
             status_frame,
-            text="就绪",
+            text=t("status_ready"),
             font=("Arial", 12, "bold"),
             fg="green",
             bg="#f0f0f0"
         )
         self.status_label.pack(side=tk.LEFT)
 
+        # 语言切换按钮（右侧）
+        self.language_btn = tk.Button(
+            status_frame,
+            text=t("btn_language"),
+            command=self.toggle_language,
+            font=("Arial", 9),
+            bg="#9C27B0",
+            fg="white",
+            cursor="hand2"
+        )
+        self.language_btn.pack(side=tk.RIGHT, padx=(5, 20))
+
         # 配置区
-        config_frame = tk.LabelFrame(
+        self.config_frame = tk.LabelFrame(
             self.root,
-            text="配置设置",
+            text=t("config_settings"),
             font=("Arial", 11, "bold"),
             padx=15,
             pady=10
         )
-        config_frame.pack(padx=15, pady=10, fill=tk.BOTH)
+        self.config_frame.pack(padx=15, pady=10, fill=tk.BOTH)
 
         # 语音选择
-        voice_frame = tk.Frame(config_frame)
+        voice_frame = tk.Frame(self.config_frame)
         voice_frame.pack(fill=tk.X, pady=5)
-        tk.Label(voice_frame, text="语音:", width=8, anchor='w').pack(side=tk.LEFT)
+        self.voice_label = tk.Label(voice_frame, text=t("voice"), width=8, anchor='w')
+        self.voice_label.pack(side=tk.LEFT)
         voice_var = tk.StringVar(value=self.config.VOICE)
         voice_combo = ttk.Combobox(
             voice_frame,
@@ -604,16 +633,16 @@ class GameSubtitleReaderApp:
         voice_combo.pack(side=tk.LEFT, padx=5)
 
         # 提示词编辑
-        prompt_frame = tk.LabelFrame(
-            config_frame,
-            text="提示词",
+        self.prompt_frame = tk.LabelFrame(
+            self.config_frame,
+            text=t("prompt_label"),
             font=("Arial", 9),
             padx=5,
             pady=5
         )
-        prompt_frame.pack(fill=tk.BOTH, pady=10)
+        self.prompt_frame.pack(fill=tk.BOTH, pady=10)
 
-        self.prompt_text = tk.Text(prompt_frame, height=4, wrap=tk.WORD, font=("Arial", 9))
+        self.prompt_text = tk.Text(self.prompt_frame, height=4, wrap=tk.WORD, font=("Arial", 9))
         self.prompt_text.insert('1.0', self.config.PROMPT_TEMPLATE)
         self.prompt_text.pack(fill=tk.BOTH)
 
@@ -622,39 +651,41 @@ class GameSubtitleReaderApp:
         button_row1.pack(pady=10, padx=20, fill=tk.X)
 
         # 手动触发按钮
-        tk.Button(
+        self.capture_btn_main = tk.Button(
             button_row1,
-            text="📸 截图并朗读",
+            text=t("btn_capture"),
             command=self.on_manual_trigger,
             font=("Arial", 11, "bold"),
             bg="#4CAF50",
             fg="white",
             height=2
-        ).pack(side=tk.LEFT, expand=True, fill=tk.BOTH, padx=(0, 5))
+        )
+        self.capture_btn_main.pack(side=tk.LEFT, expand=True, fill=tk.BOTH, padx=(0, 5))
 
         # 悬浮模式按钮
-        tk.Button(
+        self.floating_btn = tk.Button(
             button_row1,
-            text="🎯 悬浮模式",
+            text=t("btn_floating"),
             command=self.toggle_floating_mode,
             font=("Arial", 11, "bold"),
             bg="#FF9800",
             fg="white",
             height=2
-        ).pack(side=tk.LEFT, expand=True, fill=tk.BOTH, padx=(5, 0))
+        )
+        self.floating_btn.pack(side=tk.LEFT, expand=True, fill=tk.BOTH, padx=(5, 0))
 
         # 识别结果显示区
-        result_frame = tk.LabelFrame(
+        self.result_frame = tk.LabelFrame(
             self.root,
-            text="📝 识别结果",
+            text=t("result_title"),
             font=("Arial", 11, "bold"),
             padx=5,
             pady=5
         )
-        result_frame.pack(padx=15, pady=10, fill=tk.BOTH)
+        self.result_frame.pack(padx=15, pady=10, fill=tk.BOTH)
 
         self.result_text = scrolledtext.ScrolledText(
-            result_frame,
+            self.result_frame,
             height=4,
             state=tk.DISABLED,
             font=("Microsoft YaHei", 11),
@@ -664,27 +695,28 @@ class GameSubtitleReaderApp:
         self.result_text.pack(fill=tk.BOTH)
 
         # 保存按钮
-        tk.Button(
+        self.save_btn = tk.Button(
             self.root,
-            text="💾 保存截图和识别结果",
+            text=t("btn_save"),
             command=self.save_results,
             font=("Arial", 10),
             bg="#2196F3",
             fg="white"
-        ).pack(pady=5, padx=20, fill=tk.X)
+        )
+        self.save_btn.pack(pady=5, padx=20, fill=tk.X)
 
         # 日志输出区
-        log_frame = tk.LabelFrame(
+        self.log_frame = tk.LabelFrame(
             self.root,
-            text="📋 日志输出",
+            text=t("log_title"),
             font=("Arial", 11, "bold"),
             padx=5,
             pady=5
         )
-        log_frame.pack(padx=15, pady=10, fill=tk.BOTH, expand=True)
+        self.log_frame.pack(padx=15, pady=10, fill=tk.BOTH, expand=True)
 
         self.log_text = scrolledtext.ScrolledText(
-            log_frame,
+            self.log_frame,
             height=8,
             state=tk.DISABLED,
             font=("Consolas", 9),
@@ -696,23 +728,24 @@ class GameSubtitleReaderApp:
         button_frame = tk.Frame(self.root)
         button_frame.pack(pady=10)
 
-        tk.Button(
+        self.exit_btn = tk.Button(
             button_frame,
-            text="❌ 退出",
+            text=t("btn_exit"),
             command=self.on_exit,
             width=12,
             font=("Arial", 10),
             bg="#f44336",
             fg="white"
-        ).pack(side=tk.LEFT, padx=5)
+        )
+        self.exit_btn.pack(side=tk.LEFT, padx=5)
 
         # 初始日志
         self.log("=" * 50)
-        self.log("游戏字幕朗读工具 V2 已加载")
-        self.log("使用 Qwen 全模态 API (qwen3-omni-flash)")
-        self.log(f"语音: {self.config.VOICE}")
-        self.log(f"快捷键: {self.config.SCREENSHOT_HOTKEY}")
-        self.log("提示: 点击'悬浮模式'可最小化窗口")
+        self.log(t("log_loaded"))
+        self.log(t("log_api_model"))
+        self.log(f"{t('log_voice')} {self.config.VOICE}")
+        self.log(f"{t('log_hotkey')} {self.config.SCREENSHOT_HOTKEY}")
+        self.log(t("log_hint"))
         self.log("=" * 50)
 
         # 自动启用快捷键
@@ -722,8 +755,61 @@ class GameSubtitleReaderApp:
 
     def on_manual_trigger(self):
         """手动触发按钮"""
-        self.log("手动触发截图...")
+        self.log(t("log_manual_trigger"))
         threading.Thread(target=self.process_screenshot, daemon=True).start()
+
+    def toggle_language(self):
+        """切换语言"""
+        # 切换语言
+        current = I18n.get_current_language()
+        new_lang = "en_US" if current == "zh_CN" else "zh_CN"
+        I18n.set_language(new_lang)
+
+        # 更新所有界面文本
+        self.update_ui_language()
+
+        # 记录日志
+        lang_name = I18n.get_language_name()
+        self.log(t("log_language_changed", lang_name))
+
+    def update_ui_language(self):
+        """更新界面语言"""
+        # 更新窗口标题
+        self.root.title(t("app_title"))
+
+        # 更新状态区
+        self.status_text_label.config(text=t("status"))
+        status_text = self.status_label.cget("text")
+        if "就绪" in status_text or "Ready" in status_text:
+            self.status_label.config(text=t("status_ready"))
+        elif "处理" in status_text or "Processing" in status_text:
+            self.status_label.config(text=t("status_processing"))
+        elif "等待" in status_text or "Waiting" in status_text:
+            self.status_label.config(text=t("status_waiting"))
+        elif "错误" in status_text or "Error" in status_text:
+            self.status_label.config(text=t("status_error"))
+
+        # 更新语言按钮
+        self.language_btn.config(text=t("btn_language"))
+
+        # 更新配置区
+        self.config_frame.config(text=t("config_settings"))
+        self.voice_label.config(text=t("voice"))
+        self.prompt_frame.config(text=t("prompt_label"))
+
+        # 更新按钮
+        self.capture_btn_main.config(text=t("btn_capture"))
+        self.floating_btn.config(text=t("btn_floating"))
+        self.save_btn.config(text=t("btn_save"))
+        self.exit_btn.config(text=t("btn_exit"))
+
+        # 更新结果和日志区
+        self.result_frame.config(text=t("result_title"))
+        self.log_frame.config(text=t("log_title"))
+
+        # 更新悬浮窗口（如果存在）
+        if self.floating_window:
+            self.floating_window.update_language()
 
     def on_exit(self):
         """退出按钮"""
@@ -738,11 +824,11 @@ class GameSubtitleReaderApp:
             # 关闭音频播放器
             self.audio_player.shutdown()
 
-            self.log("正在退出...")
+            self.log(t("log_exiting"))
             self.root.quit()
             self.root.destroy()
         except Exception as e:
-            print(f"退出时出错: {e}")
+            print(f"Exit error: {e}")
             sys.exit(0)
 
     # ============ 辅助方法 ============
@@ -751,9 +837,10 @@ class GameSubtitleReaderApp:
         """更新状态显示"""
         if self.status_label:
             self.status_label.config(text=status)
-            if status == "处理中...":
+            # 根据状态内容判断颜色
+            if "Processing" in status or "处理" in status:
                 self.status_label.config(fg="orange")
-            elif status == "错误":
+            elif "Error" in status or "错误" in status:
                 self.status_label.config(fg="red")
             else:
                 self.status_label.config(fg="green")

@@ -8,6 +8,7 @@
 - **语音朗读**：采用儿童友好的 Cherry 音色，清晰朗读角色对话
 - **悬浮窗模式**：轻量级悬浮按钮，不遮挡游戏画面
 - **全局快捷键**：支持 F9 快捷键触发（游戏全屏时也可用）
+- **多语言支持**：支持中文和英文界面切换
 - **灵活配置**：可自定义音色、提示词等参数
 - **实时反馈**：显示识别到的文本和处理状态
 
@@ -98,10 +99,12 @@ python game_subtitle_reader.py
 ScreenScanner/
 ├── game_subtitle_reader.py    # 主程序
 ├── config.py                   # 配置管理
+├── i18n.py                     # 国际化模块
 ├── requirements.txt            # 依赖列表
 ├── qwen_omini_api.py          # API 使用示例
 ├── .env                        # API Key 配置（需自行创建）
-└── README.md                   # 项目说明
+├── README.md                   # 项目说明（中文）
+└── README_EN.md                # 项目说明（英文）
 ```
 
 ## 常见问题
